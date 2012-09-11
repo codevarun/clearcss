@@ -1,0 +1,14 @@
+{
+	"name": "清理CSS",
+  "version": "0.1",
+  "description": "检查页面中用<link/>标签引入的外部样式文件里没被用到的样式规则，支持检查内嵌iframe，支持多刷新合并",
+  // 选项文件
+  //"options_page": "options.html"
+  "browser_action": {
+    "default_icon": "favicon.png",
+    "default_title": "点击即开始监听当前页面，再次点击则结束监听，列出未使用的CSS规则清单",
+    "popup": "index.html"
+    // 弹出窗口
+    //"default_popup": "",
+  }
+}
