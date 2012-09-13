@@ -30,10 +30,12 @@ var m = (function(M) {
     }
     return base;
   },
-  "$": function(s) {
+  "$": function(s, context) {
     if(typeof s !== "string")
       return null;
-    return document.querySelectorAll(s);
+    // 可以传入iframe的document
+    context = context && ((context.document || context.contentDocument) ? (context.document || context.contentDocument) : context) || document;
+    return context.querySelectorAll(s);
   },
   "localStorage": function(key, value) {
     if(!window.localStorage) {
@@ -180,24 +182,89 @@ function CssParser(css) {
   };
   // init
   this.css = this.initClear(this.css);
-  console.log("this.css-> ", this.css);
+  //console.log("this.css-> ", this.css);
   this.setAtRuleBlock(this.css);
-  console.log("this.atRuleBlock-> ", this.atRuleBlock);
+  //console.log("this.atRuleBlock-> ", this.atRuleBlock);
   this.setRules(this.css);
-  console.log("this.rules-> ", this.rules);
+  //console.log("this.rules-> ", this.rules);
 }
 
-m.ajax({
-  url: "http://localhost/test.css",
-  onSuccess: function(data) {
-    if(typeof data.response === "string") {
-      var time1 = +new Date();
-      var parser = new CssParser(data.response);
-      var selectors = parser.getSelectors();
-      var time2 = +new Date();
-      console.log("记录selectors个数：", selectors.length);
-      console.log("获取selectors耗时：", time2 - time1);
-      console.log("selectors-> ", selectors);
+/**
+ * 获取window或iframe中所有stylesheet的selector
+ * @param {Window|Iframe} context 要查找的环境
+ * @return {Array} 存储该context内所有selector
+ */
+function getSelectorsFromContext(context) {
+  var selectors = [];
+  var links = m.$("link", context);
+  for(var i=0,l=links.length; i<l; i++) {
+    if(toString.call(links[i].sheet).indexOf("CSSStyleSheet") != -1) {
+      // chrome将其识别为stylesheet并成功获取到文件内的css规则（必须包含rel="stylesheet"）
+      selectors = selectors.concat(getSelectorsFromOneLink(links[i]));
+    } else {
+      // 判断是否为样式文件，如果是则再调用CssParser获取selector
+      if(!links[i].href)
+        continue;
+      if(!links[i].rel || links[i] == "stylesheet") {
+        if(!links[i].type || links[i].type == "text/css") {
+          m.ajax({
+            url: links[i].href,
+            onSuccess: function(data) {
+              if(typeof data.response === "string") {
+                var parser = new CssParser(data.response);
+                selectors = selectors.concat(parser.getSelectors());
+              }
+            }
+          });
+        }
+      }
     }
   }
-});
+  return selectors;
+}
+/**
+ * 从一个link标签中获取selector，被getSelectorsFromContext调用
+ * @param {CSSStyleSheet} link 被正确识别为stylesheet的link标签
+ * @return {Array} 存储该stylesheet内所有的css selector
+ */
+function getSelectorsFromOneLink(link) {
+  var result = [];
+  var rules = link.sheet.cssRules || [];
+  for(var i=0,l=rules.length; i<l; i++) {
+    result.push(rules[i].selectorText);
+  }
+  return result;
+}
+/**
+ * 根据传入的selectorAdapt对象，查找没被使用到的selector
+ * @param {Object} adapt {context: window, selectors: []}
+ * @return {Array} 没被使用到的selector数组
+ */
+function checkDomBySelectors(adapt) {
+  var unusedCss = [];
+  var s = adapt.selectors;
+  for(var i=0,l=s.length; i<l; i++) {
+    // 类似@media screen{}之类的规则，会占用一个cssRules索引，但内容为undefined，因此需要增加s[i]是否存在的判断
+    if(s[i] && !m.$(s[i], adapt.context).length) {
+      //console.log("adapt", adapt, "i", i, "selectors[i]", adapt.selectors[i]);
+      unusedCss.push(s[i]);
+    }
+  }
+  return unusedCss;
+}
+(function() {
+  var contexts = [window].concat(m.extend([], m.$("iframe[src]")));
+  /**
+   * 存储由上下文和该上下文内所有selector组成的对象的数组
+   * @example [{context: window, selectors: ["body", ".container"]}, {context: iframe1, selectors: ["body", ".container"]}]
+   */
+  var selectorAdapts = [];
+  for(var i=0,l=contexts.length; i<l; i++) {
+    selectorAdapts[i] = {
+      context: contexts[i],
+      selectors: getSelectorsFromContext(contexts[i])
+    };
+    console.log("unusedCss-> ", checkDomBySelectors(selectorAdapts[i]));
+    console.log("context-> ", contexts[i]);
+  }
+})();
